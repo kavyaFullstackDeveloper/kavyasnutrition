@@ -934,3 +934,96 @@
   }
 
 }
+
+
+/* Review submission messages */
+.review-message {
+  max-width: 900px;
+  margin: 0 auto 1.25rem;
+  padding: 14px 18px;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  line-height: 1.7;
+}
+
+.review-error {
+  color: #8b3030;
+  background: #fff1ef;
+  border: 1px solid #f0d0ca;
+}
+
+.review-success {
+  color: #28563d;
+  background: #f0f7f0;
+  border: 1px solid #d4e4d5;
+}
+
+.review-character-count {
+  margin-top: -0.8rem;
+  text-align: right;
+  color: #78847c;
+  font-size: 0.75rem;
+}
+
+.rating-input {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
+
+.rating-input legend {
+  margin-bottom: 0.6rem;
+  color: #415248;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.review-form-note {
+  margin: 0;
+  color: #718077;
+  font-size: 0.78rem;
+  line-height: 1.7;
+}
+
+.image-preview-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.image-preview-wrap button {
+  padding: 8px 12px;
+  border: 1px solid #d9e0da;
+  border-radius: 20px;
+  background: #fff;
+  color: #28563d;
+  cursor: pointer;
+}
+
+.testimonial-disclaimer {
+  max-width: 1000px;
+  margin: 24px auto 0;
+  padding: 18px 20px;
+  background: #f5f5ef;
+  border-left: 3px solid #b99a5b;
+  border-radius: 8px;
+  color: #59655c;
+  font-size: 0.84rem;
+  line-height: 1.75;
+}
+
+.testimonial-disclaimer strong {
+  color: #28563d;
+}
+
+.testimonial-disclaimer p {
+  margin: 8px 0 0;
+}
+
+@media (max-width: 600px) {
+  .testimonial-disclaimer {
+    padding: 15px;
+    font-size: 0.8rem;
+  }
+}

@@ -7,6 +7,7 @@ import Contact from './pages/Contact';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import FirestoreCheck from './firestorecheck';
+import Research from './pages/Research';
 
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "./firebase";
@@ -36,6 +37,7 @@ function App() {
         <Route path="/about" element={<About />} />
         <Route path="/reviews" element={<Reviews />} />
         <Route path="/contact" element={<Contact />} />
+        <Route path="/research" element={<Research />} />
       </Routes>
       <Footer /> 
       <FirestoreCheck />
