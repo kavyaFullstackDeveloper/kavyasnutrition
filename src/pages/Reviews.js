@@ -1,9 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  FaStar,
-  FaYoutube
-} from 'react-icons/fa';
+import { FaStar, FaYoutube } from 'react-icons/fa';
 import './Reviews.css';
 
 import { auth, provider, db, storage } from '../firebase.js';
@@ -33,7 +30,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 /* =========================================================
    YOUTUBE VIDEO TESTIMONIALS
-   Keep your existing video IDs.
+   Existing videos preserved.
 ========================================================= */
 const testimonialVideos = [
   { id: '0fyEsfsoQgI', title: 'Client Transformation Story' },
@@ -48,6 +45,7 @@ const Reviews = () => {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
   const [formData, setFormData] = useState({
     review: '',
@@ -61,20 +59,28 @@ const Reviews = () => {
      AUTH STATE
   ========================================================= */
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-    });
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      (currentUser) => {
+        setUser(currentUser);
+      },
+      (error) => {
+        console.error('Firebase auth state error:', error);
+        setErrorMessage(
+          'Unable to check your sign-in status. Please refresh the page.'
+        );
+      }
+    );
 
     return () => unsubscribe();
   }, []);
 
   /* =========================================================
      FETCH EXISTING WRITTEN REVIEWS
-     Keeps the existing Firestore collection and data format.
-  ========================================================= */
+     Preserves collection name and existing document format.
+========================================================= */
   const fetchReviews = useCallback(async () => {
     setFetching(true);
-    setErrorMessage('');
 
     try {
       const reviewsQuery = query(
@@ -93,7 +99,7 @@ const Reviews = () => {
     } catch (error) {
       console.error('Error fetching reviews:', error);
       setErrorMessage(
-        'Unable to load written reviews right now. Please refresh the page.'
+        'Unable to load written reviews. Please refresh the page.'
       );
     } finally {
       setFetching(false);
@@ -106,37 +112,92 @@ const Reviews = () => {
 
   /* =========================================================
      GOOGLE LOGIN
-  ========================================================= */
+     More informative Firebase error handling.
+========================================================= */
   const handleLogin = async () => {
     setErrorMessage('');
+    setSuccessMessage('');
 
     try {
       await signInWithPopup(auth, provider);
+      // onAuthStateChanged updates the user state.
     } catch (error) {
-      console.error('Google login failed:', error);
-      setErrorMessage(
-        error.code === 'auth/popup-closed-by-user'
-          ? 'Sign-in was cancelled. You can try again.'
-          : 'Unable to sign in with Google. Please try again.'
-      );
+      console.error('Google sign-in failed:', {
+        code: error.code,
+        message: error.message
+      });
+
+      let message;
+
+      switch (error.code) {
+        case 'auth/popup-closed-by-user':
+          message = 'Sign-in was cancelled. Please try again.';
+          break;
+
+        case 'auth/popup-blocked':
+          message =
+            'Your browser blocked the sign-in popup. Allow popups for this website and try again.';
+          break;
+
+        case 'auth/unauthorized-domain':
+          message =
+            'This website domain is not authorized in Firebase. Add your domain under Authentication settings.';
+          break;
+
+        case 'auth/operation-not-allowed':
+          message =
+            'Google sign-in is disabled. Enable Google under Firebase Authentication → Sign-in method.';
+          break;
+
+        case 'auth/network-request-failed':
+          message =
+            'Network error. Check your internet connection and try again.';
+          break;
+
+        case 'auth/cancelled-popup-request':
+          message =
+            'A sign-in popup is already open. Close it and try again.';
+          break;
+
+        case 'auth/account-exists-with-different-credential':
+          message =
+            'An account already exists with another sign-in method. Use the existing sign-in method for that account.';
+          break;
+
+        case 'auth/unauthorized-continue-uri':
+          message =
+            'The sign-in continuation domain is not authorized in Firebase.';
+          break;
+
+        default:
+          message = `Google sign-in failed (${error.code || 'unknown error'}). Please check Firebase settings and the browser console.`;
+      }
+
+      setErrorMessage(message);
     }
   };
 
   /* =========================================================
      LOGOUT
-  ========================================================= */
+========================================================= */
   const handleLogout = async () => {
+    setErrorMessage('');
+    setSuccessMessage('');
+
     try {
       await signOut(auth);
+      setSuccessMessage('You have signed out successfully.');
     } catch (error) {
       console.error('Logout failed:', error);
-      setErrorMessage('Unable to sign out. Please try again.');
+      setErrorMessage(
+        `Unable to sign out (${error.code || 'unknown error'}). Please try again.`
+      );
     }
   };
 
   /* =========================================================
      FORM CHANGE
-  ========================================================= */
+========================================================= */
   const handleChange = (event) => {
     const { name, value, type, checked } = event.target;
 
@@ -148,7 +209,7 @@ const Reviews = () => {
 
   /* =========================================================
      STAR RATING
-  ========================================================= */
+========================================================= */
   const handleRating = (ratingValue) => {
     setFormData((previous) => ({
       ...previous,
@@ -158,7 +219,7 @@ const Reviews = () => {
 
   /* =========================================================
      IMAGE UPLOAD
-  ========================================================= */
+========================================================= */
   const handleImageChange = (event) => {
     const file = event.target.files?.[0];
 
@@ -177,6 +238,9 @@ const Reviews = () => {
     }
 
     setErrorMessage('');
+    setSuccessMessage('');
+
+    const previewUrl = URL.createObjectURL(file);
 
     setFormData((previous) => {
       if (previous.imagePreview) {
@@ -186,27 +250,32 @@ const Reviews = () => {
       return {
         ...previous,
         image: file,
-        imagePreview: URL.createObjectURL(file)
+        imagePreview: previewUrl
       };
     });
   };
 
   /* =========================================================
      SUBMIT REVIEW
-  ========================================================= */
+========================================================= */
   const handleSubmit = async (event) => {
     event.preventDefault();
     setErrorMessage('');
+    setSuccessMessage('');
 
     const reviewText = formData.review.trim();
 
     if (!user) {
-      setErrorMessage('Please sign in with Google before submitting a review.');
+      setErrorMessage(
+        'Please sign in with Google before submitting a review.'
+      );
       return;
     }
 
     if (!reviewText || formData.rating < 1) {
-      setErrorMessage('Please write your review and select a star rating.');
+      setErrorMessage(
+        'Please write your review and select a star rating.'
+      );
       return;
     }
 
@@ -253,13 +322,16 @@ const Reviews = () => {
       const fileInput = document.getElementById('review-image-upload');
       if (fileInput) fileInput.value = '';
 
-      alert('Your review was submitted successfully!');
-
+      setSuccessMessage('Your review was submitted successfully!');
       await fetchReviews();
     } catch (error) {
-      console.error('Error submitting review:', error);
+      console.error('Error submitting review:', {
+        code: error.code,
+        message: error.message
+      });
+
       setErrorMessage(
-        'Your review could not be submitted. Please try again.'
+        `Your review could not be submitted (${error.code || 'unknown error'}). Please check Firebase permissions and try again.`
       );
     } finally {
       setLoading(false);
@@ -268,18 +340,20 @@ const Reviews = () => {
 
   /* =========================================================
      CLEAN UP IMAGE PREVIEW URL
-  ========================================================= */
+========================================================= */
   useEffect(() => {
+    const previewUrl = formData.imagePreview;
+
     return () => {
-      if (formData.imagePreview) {
-        URL.revokeObjectURL(formData.imagePreview);
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
       }
     };
   }, [formData.imagePreview]);
 
   /* =========================================================
      SEPARATE FEATURED TESTIMONIALS AND OTHER REVIEWS
-  ========================================================= */
+========================================================= */
   const testimonials = reviews.filter(
     (review) => review.isTestimonial === true
   );
@@ -289,23 +363,27 @@ const Reviews = () => {
   );
 
   /* =========================================================
-     REUSABLE STAR DISPLAY
-  ========================================================= */
+     STAR DISPLAY
+========================================================= */
   const renderStars = (rating) => (
     <div className="rating" aria-label={`${rating || 0} out of 5 stars`}>
       {[1, 2, 3, 4, 5].map((value) => (
         <FaStar
           key={value}
           size={15}
-          color={value <= Number(rating || 0) ? '#c89b3c' : '#e1e4e1'}
+          color={
+            value <= Number(rating || 0)
+              ? '#c89b3c'
+              : '#e1e4e1'
+          }
         />
       ))}
     </div>
   );
 
   /* =========================================================
-     REUSABLE WRITTEN REVIEW CARD
-  ========================================================= */
+     WRITTEN REVIEW CARD
+========================================================= */
   const renderReviewCard = (review, featured = false) => (
     <article
       key={review.id}
@@ -326,12 +404,8 @@ const Reviews = () => {
 
         <div className="review-content">
           <p className="name">{review.name || 'Client'}</p>
-
           {renderStars(review.rating)}
-
-          <p className="review">
-            “{review.review}”
-          </p>
+          <p className="review">“{review.review}”</p>
         </div>
       </div>
     </article>
@@ -339,11 +413,9 @@ const Reviews = () => {
 
   /* =========================================================
      PAGE
-  ========================================================= */
+========================================================= */
   return (
     <div className="reviews-container">
-
-      {/* PAGE HEADER */}
       <header className="reviews-header">
         <span className="reviews-eyebrow">
           REAL STORIES • REAL JOURNEYS
@@ -440,10 +512,16 @@ const Reviews = () => {
         )}
       </section>
 
-      {/* FORM STATUS MESSAGES */}
+      {/* STATUS MESSAGES */}
       {errorMessage && (
         <p className="review-message" role="alert">
           {errorMessage}
+        </p>
+      )}
+
+      {successMessage && (
+        <p className="review-message" role="status">
+          {successMessage}
         </p>
       )}
 
@@ -538,7 +616,7 @@ const Reviews = () => {
         </section>
       )}
 
-      {/* LOADING STATE */}
+      {/* LOADING */}
       {fetching && (
         <div className="spinner" role="status">
           <span>Loading client stories...</span>
