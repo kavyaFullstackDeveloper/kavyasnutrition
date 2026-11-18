@@ -28,24 +28,22 @@ import {
 
 import { v4 as uuidv4 } from 'uuid';
 
-/* =========================================================
-   YOUTUBE VIDEO TESTIMONIALS
-   Existing videos preserved.
-========================================================= */
-const testimonialVideos = [
-  { id: '0fyEsfsoQgI', title: 'Client Transformation Story' },
-  { id: 'wzlBQvSL5Gs', title: 'Client Wellness Journey' },
-  { id: 'd2w5D0PhFFM', title: 'Client Success Story' },
-  { id: 'bF2D7n0JCoc', title: 'Client Testimonial' }
-];
-
 const Reviews = () => {
   const [user, setUser] = useState(null);
   const [reviews, setReviews] = useState([]);
+
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
+
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  // YouTube playlist state
+  const [videos, setVideos] = useState([]);
+  const [videosLoading, setVideosLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [videoError, setVideoError] = useState('');
+  const [nextPageToken, setNextPageToken] = useState(null);
 
   const [formData, setFormData] = useState({
     review: '',
@@ -56,29 +54,73 @@ const Reviews = () => {
   });
 
   /* =========================================================
-     AUTH STATE
+     FETCH YOUTUBE TESTIMONIALS
   ========================================================= */
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(
-      auth,
-      (currentUser) => {
-        setUser(currentUser);
-      },
-      (error) => {
-        console.error('Firebase auth state error:', error);
-        setErrorMessage(
-          'Unable to check your sign-in status. Please refresh the page.'
+
+  const fetchYouTubeVideos = useCallback(async (pageToken = null) => {
+    const isFirstPage = !pageToken;
+
+    if (isFirstPage) {
+      setVideosLoading(true);
+      setVideoError('');
+    } else {
+      setLoadingMore(true);
+    }
+
+    try {
+      const url = pageToken
+        ? `/api/youtube-testimonials?pageToken=${encodeURIComponent(pageToken)}`
+        : '/api/youtube-testimonials';
+
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error || 'Unable to load YouTube testimonials.'
         );
       }
-    );
 
-    return () => unsubscribe();
+      const receivedVideos = Array.isArray(data.videos)
+        ? data.videos
+        : [];
+
+      setVideos((previous) => {
+        if (isFirstPage) {
+          return receivedVideos;
+        }
+
+        const existingIds = new Set(previous.map((video) => video.id));
+
+        const newVideos = receivedVideos.filter(
+          (video) => !existingIds.has(video.id)
+        );
+
+        return [...previous, ...newVideos];
+      });
+
+      setNextPageToken(data.nextPageToken || null);
+    } catch (error) {
+      console.error('YouTube playlist error:', error);
+
+      setVideoError(
+        error.message ||
+        'Unable to load video testimonials. Please try again later.'
+      );
+    } finally {
+      setVideosLoading(false);
+      setLoadingMore(false);
+    }
   }, []);
 
+  useEffect(() => {
+    fetchYouTubeVideos();
+  }, [fetchYouTubeVideos]);
+
   /* =========================================================
-     FETCH EXISTING WRITTEN REVIEWS
-     Preserves collection name and existing document format.
-========================================================= */
+     FETCH WRITTEN REVIEWS
+  ========================================================= */
+
   const fetchReviews = useCallback(async () => {
     setFetching(true);
 
@@ -98,6 +140,7 @@ const Reviews = () => {
       setReviews(reviewData);
     } catch (error) {
       console.error('Error fetching reviews:', error);
+
       setErrorMessage(
         'Unable to load written reviews. Please refresh the page.'
       );
@@ -111,21 +154,39 @@ const Reviews = () => {
   }, [fetchReviews]);
 
   /* =========================================================
+     FIREBASE AUTH STATE
+  ========================================================= */
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      (currentUser) => {
+        setUser(currentUser);
+      },
+      (error) => {
+        console.error('Firebase auth state error:', error);
+
+        setErrorMessage(
+          'Unable to check your sign-in status. Please refresh the page.'
+        );
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  /* =========================================================
      GOOGLE LOGIN
-     More informative Firebase error handling.
-========================================================= */
+  ========================================================= */
+
   const handleLogin = async () => {
     setErrorMessage('');
     setSuccessMessage('');
 
     try {
       await signInWithPopup(auth, provider);
-      // onAuthStateChanged updates the user state.
     } catch (error) {
-      console.error('Google sign-in failed:', {
-        code: error.code,
-        message: error.message
-      });
+      console.error('Google sign-in failed:', error);
 
       let message;
 
@@ -136,17 +197,17 @@ const Reviews = () => {
 
         case 'auth/popup-blocked':
           message =
-            'Your browser blocked the sign-in popup. Allow popups for this website and try again.';
+            'Your browser blocked the sign-in popup. Allow popups and try again.';
           break;
 
         case 'auth/unauthorized-domain':
           message =
-            'This website domain is not authorized in Firebase. Add your domain under Authentication settings.';
+            'This website domain is not authorized in Firebase Authentication.';
           break;
 
         case 'auth/operation-not-allowed':
           message =
-            'Google sign-in is disabled. Enable Google under Firebase Authentication → Sign-in method.';
+            'Enable Google sign-in in Firebase Authentication settings.';
           break;
 
         case 'auth/network-request-failed':
@@ -159,18 +220,8 @@ const Reviews = () => {
             'A sign-in popup is already open. Close it and try again.';
           break;
 
-        case 'auth/account-exists-with-different-credential':
-          message =
-            'An account already exists with another sign-in method. Use the existing sign-in method for that account.';
-          break;
-
-        case 'auth/unauthorized-continue-uri':
-          message =
-            'The sign-in continuation domain is not authorized in Firebase.';
-          break;
-
         default:
-          message = `Google sign-in failed (${error.code || 'unknown error'}). Please check Firebase settings and the browser console.`;
+          message = `Google sign-in failed (${error.code || 'unknown error'}). Please try again.`;
       }
 
       setErrorMessage(message);
@@ -179,7 +230,8 @@ const Reviews = () => {
 
   /* =========================================================
      LOGOUT
-========================================================= */
+  ========================================================= */
+
   const handleLogout = async () => {
     setErrorMessage('');
     setSuccessMessage('');
@@ -189,6 +241,7 @@ const Reviews = () => {
       setSuccessMessage('You have signed out successfully.');
     } catch (error) {
       console.error('Logout failed:', error);
+
       setErrorMessage(
         `Unable to sign out (${error.code || 'unknown error'}). Please try again.`
       );
@@ -197,7 +250,8 @@ const Reviews = () => {
 
   /* =========================================================
      FORM CHANGE
-========================================================= */
+  ========================================================= */
+
   const handleChange = (event) => {
     const { name, value, type, checked } = event.target;
 
@@ -209,7 +263,8 @@ const Reviews = () => {
 
   /* =========================================================
      STAR RATING
-========================================================= */
+  ========================================================= */
+
   const handleRating = (ratingValue) => {
     setFormData((previous) => ({
       ...previous,
@@ -219,7 +274,8 @@ const Reviews = () => {
 
   /* =========================================================
      IMAGE UPLOAD
-========================================================= */
+  ========================================================= */
+
   const handleImageChange = (event) => {
     const file = event.target.files?.[0];
 
@@ -256,10 +312,12 @@ const Reviews = () => {
   };
 
   /* =========================================================
-     SUBMIT REVIEW
-========================================================= */
+     SUBMIT WRITTEN REVIEW
+  ========================================================= */
+
   const handleSubmit = async (event) => {
     event.preventDefault();
+
     setErrorMessage('');
     setSuccessMessage('');
 
@@ -294,6 +352,7 @@ const Reviews = () => {
         const imageReference = ref(storage, imagePath);
 
         await uploadBytes(imageReference, formData.image);
+
         imageUrl = await getDownloadURL(imageReference);
       }
 
@@ -320,15 +379,16 @@ const Reviews = () => {
       });
 
       const fileInput = document.getElementById('review-image-upload');
-      if (fileInput) fileInput.value = '';
+
+      if (fileInput) {
+        fileInput.value = '';
+      }
 
       setSuccessMessage('Your review was submitted successfully!');
+
       await fetchReviews();
     } catch (error) {
-      console.error('Error submitting review:', {
-        code: error.code,
-        message: error.message
-      });
+      console.error('Error submitting review:', error);
 
       setErrorMessage(
         `Your review could not be submitted (${error.code || 'unknown error'}). Please check Firebase permissions and try again.`
@@ -339,8 +399,9 @@ const Reviews = () => {
   };
 
   /* =========================================================
-     CLEAN UP IMAGE PREVIEW URL
-========================================================= */
+     CLEAN UP IMAGE PREVIEW
+  ========================================================= */
+
   useEffect(() => {
     const previewUrl = formData.imagePreview;
 
@@ -352,8 +413,9 @@ const Reviews = () => {
   }, [formData.imagePreview]);
 
   /* =========================================================
-     SEPARATE FEATURED TESTIMONIALS AND OTHER REVIEWS
-========================================================= */
+     SEPARATE WRITTEN REVIEWS
+  ========================================================= */
+
   const testimonials = reviews.filter(
     (review) => review.isTestimonial === true
   );
@@ -364,7 +426,8 @@ const Reviews = () => {
 
   /* =========================================================
      STAR DISPLAY
-========================================================= */
+  ========================================================= */
+
   const renderStars = (rating) => (
     <div className="rating" aria-label={`${rating || 0} out of 5 stars`}>
       {[1, 2, 3, 4, 5].map((value) => (
@@ -383,7 +446,8 @@ const Reviews = () => {
 
   /* =========================================================
      WRITTEN REVIEW CARD
-========================================================= */
+  ========================================================= */
+
   const renderReviewCard = (review, featured = false) => (
     <article
       key={review.id}
@@ -413,9 +477,13 @@ const Reviews = () => {
 
   /* =========================================================
      PAGE
-========================================================= */
+  ========================================================= */
+
   return (
     <div className="reviews-container">
+
+      {/* HEADER */}
+
       <header className="reviews-header">
         <span className="reviews-eyebrow">
           REAL STORIES • REAL JOURNEYS
@@ -429,52 +497,112 @@ const Reviews = () => {
         </p>
       </header>
 
-      {/* YOUTUBE VIDEO TESTIMONIALS */}
+      {/* AUTOMATIC YOUTUBE TESTIMONIALS */}
+
       <section className="video-testimonials">
         <div className="video-section-heading">
           <span className="section-eyebrow">VIDEO TESTIMONIALS</span>
+
           <h2>Hear It From My Clients</h2>
+
           <p>
             Real experiences, personal journeys, and stories of change.
           </p>
         </div>
 
-        <div className="testimonial-video-grid">
-          {testimonialVideos.map((video) => (
-            <article
-              className="testimonial-video-card"
-              key={video.id}
-            >
-              <div className="video-wrapper">
-                <iframe
-                  src={`https://www.youtube-nocookie.com/embed/${video.id}`}
-                  title={video.title}
-                  loading="lazy"
-                  referrerPolicy="strict-origin-when-cross-origin"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowFullScreen
-                />
-              </div>
+        {videosLoading && (
+          <div className="spinner" role="status">
+            Loading video testimonials...
+          </div>
+        )}
 
-              <div className="video-card-content">
-                <span className="video-label">
-                  <FaYoutube aria-hidden="true" /> CLIENT STORY
-                </span>
-                <h3>{video.title}</h3>
-              </div>
-            </article>
-          ))}
-        </div>
+        {videoError && (
+          <div className="review-message review-error" role="alert">
+            {videoError}
+
+            <button
+              type="button"
+              onClick={() => fetchYouTubeVideos()}
+              style={{
+                display: 'block',
+                marginTop: '10px',
+                padding: '8px 14px',
+                borderRadius: '20px',
+                border: '1px solid #d9e0da',
+                background: '#fff',
+                color: '#28563d',
+                cursor: 'pointer'
+              }}
+            >
+              Try Again
+            </button>
+          </div>
+        )}
+
+        {!videosLoading && videos.length === 0 && !videoError && (
+          <p className="no-reviews">
+            No video testimonials are available yet.
+          </p>
+        )}
+
+        {videos.length > 0 && (
+          <div className="testimonial-video-grid">
+            {videos.map((video) => (
+              <article
+                className="testimonial-video-card"
+                key={video.id}
+              >
+                <div className="video-wrapper">
+                  <iframe
+                    src={`https://www.youtube-nocookie.com/embed/${video.id}`}
+                    title={video.title}
+                    loading="lazy"
+                    referrerPolicy="strict-origin-when-cross-origin"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                  />
+                </div>
+
+                <div className="video-card-content">
+                  <span className="video-label">
+                    <FaYoutube aria-hidden="true" /> CLIENT STORY
+                  </span>
+
+                  <h3>{video.title}</h3>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+
+        {/* LOAD MORE FOR PLAYLISTS WITH MORE THAN 50 VIDEOS */}
+
+        {nextPageToken && (
+          <div style={{ textAlign: 'center', marginTop: '28px' }}>
+            <button
+              type="button"
+              className="submit-btn"
+              style={{ maxWidth: '240px' }}
+              onClick={() => fetchYouTubeVideos(nextPageToken)}
+              disabled={loadingMore}
+            >
+              {loadingMore ? 'Loading...' : 'Load More Videos'}
+            </button>
+          </div>
+        )}
       </section>
 
       {/* LOGIN / LOGOUT */}
+
       <section className="review-access">
         {!user ? (
           <div className="login-box">
             <div className="login-content">
               <span className="login-icon">💬</span>
+
               <div>
                 <h3>Have you worked with me?</h3>
+
                 <p>
                   Your experience could inspire someone else on their
                   wellness journey.
@@ -492,6 +620,7 @@ const Reviews = () => {
                 alt=""
                 aria-hidden="true"
               />
+
               Sign in with Google to share your story
             </button>
           </div>
@@ -513,23 +642,26 @@ const Reviews = () => {
       </section>
 
       {/* STATUS MESSAGES */}
+
       {errorMessage && (
-        <p className="review-message" role="alert">
+        <p className="review-message review-error" role="alert">
           {errorMessage}
         </p>
       )}
 
       {successMessage && (
-        <p className="review-message" role="status">
+        <p className="review-message review-success" role="status">
           {successMessage}
         </p>
       )}
 
       {/* REVIEW FORM */}
+
       {user && (
         <section className="review-form-section">
           <div className="form-heading">
             <span className="section-eyebrow">SHARE YOUR EXPERIENCE</span>
+
             <h2>Tell Us About Your Journey</h2>
           </div>
 
@@ -616,7 +748,8 @@ const Reviews = () => {
         </section>
       )}
 
-      {/* LOADING */}
+      {/* WRITTEN REVIEW LOADING */}
+
       {fetching && (
         <div className="spinner" role="status">
           <span>Loading client stories...</span>
@@ -624,6 +757,7 @@ const Reviews = () => {
       )}
 
       {/* FEATURED WRITTEN TESTIMONIALS */}
+
       {!fetching && testimonials.length > 0 && (
         <section className="featured-testimonials">
           <div className="section-heading">
@@ -632,12 +766,15 @@ const Reviews = () => {
           </div>
 
           <div className="testimonial-list">
-            {testimonials.map((review) => renderReviewCard(review, true))}
+            {testimonials.map((review) =>
+              renderReviewCard(review, true)
+            )}
           </div>
         </section>
       )}
 
-      {/* ALL OTHER WRITTEN REVIEWS */}
+      {/* OTHER WRITTEN REVIEWS */}
+
       {!fetching && clientReviews.length > 0 && (
         <section className="all-reviews">
           <div className="section-heading">
@@ -646,12 +783,15 @@ const Reviews = () => {
           </div>
 
           <div className="review-list">
-            {clientReviews.map((review) => renderReviewCard(review))}
+            {clientReviews.map((review) =>
+              renderReviewCard(review)
+            )}
           </div>
         </section>
       )}
 
       {/* EMPTY STATE */}
+
       {!fetching && reviews.length === 0 && (
         <p className="no-reviews">
           {errorMessage
@@ -660,25 +800,12 @@ const Reviews = () => {
         </p>
       )}
 
-      {/* HEALTH DISCLAIMER */}
-      <aside
-        className="testimonial-disclaimer"
-        style={{
-          marginTop: '40px',
-          padding: '20px',
-          backgroundColor: '#f9f9f9',
-          borderRadius: '8px'
-        }}
-      >
+      {/* DISCLAIMER */}
+
+      <aside className="testimonial-disclaimer">
         <strong>Health &amp; Nutrition Disclaimer</strong>
 
-        <p
-          style={{
-            fontSize: '14px',
-            color: '#666',
-            lineHeight: '1.6'
-          }}
-        >
+        <p>
           These videos and written reviews reflect individual experiences
           and personal opinions. They are not a guarantee of results or a
           prediction of what another person will experience. Nutrition
@@ -690,6 +817,7 @@ const Reviews = () => {
           prescribed treatment.
         </p>
       </aside>
+
     </div>
   );
 };
